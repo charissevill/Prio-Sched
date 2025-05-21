@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Priority CPU Scheduling</title>
+    <link rel="stylesheet" href="finalprio.css"> 
+</head>
+<body>
+    <h1>Priority CPU Scheduling | Preemptive & Non-Preemptive</h1>
+    <div class="container">
+        <div class="input-section">
+            <h2>Input</h2> 
+            <label for="schedulingType"><strong>Scheduling Type</strong></label>
+            <select id="schedulingType">
+                <option value="preemptive"><strong>Preemptive Priority</strong></option>
+                <option value="nonpreemptive">Non-Preemptive Priority</option>
+            </select>
+
+            <label for="arrivalT"><strong>Arrival Times</strong></label>
+            <input type="text" id="arrivalT" placeholder="e.g. 0 2 4 9" required>
+
+            <label for="burstT"><strong>Burst Times</strong></label>
+            <input type="text" id="burstT" placeholder="e.g. 6 8 7 1" required>
+
+            <label for="prio"><strong>Priorities</strong></label>
+            <input type="text" id="prio" placeholder="e.g. 1 2 3 4" required>
+
+            <button onclick="runSched()">Solve</button>
+
+        </div>
+
+        <div class="output-section">
+            <h2>Order of Processing</h2> 
+            <div id="ganttChart"></div>
+            <h2>Results</h2> 
+            <div id="results"></div>
+        </div>
+    </div>
+
+    <script>
+        // Merge consecutive entries in Gantt chart 
+        function mergeGanttChart(ganttInfo) {
+            const merged = [];
+            let current = ganttInfo[0];
+
+            for (let i = 1; i < ganttInfo.length; i++) {
+                if (ganttInfo[i].job === current.job) {
+                    current.stop = ganttInfo[i].stop;
+                } else {
+                    merged.push(current);
+                    current = ganttInfo[i];
+                }
+            }
+            merged.push(current);
+            return merged;
+        }
+
+        // Preemptive Priority Scheduling Algorithm
+        function preemptivePrio(arrivalT, burstT, prio) {
+            const n = arrivalT.length, remainingTime = [...burstT];
+            let time = 0, completed = 0, ganttInfo = [], processes = [];
+            const totalburstT = burstT.reduce((a, b) => a + b, 0);
+
+            // Initialize process data
+            for (let i = 0; i < n; i++) {
+                processes.push({ job: `P${i + 1}`, at: arrivalT[i], bt: burstT[i], priority: prio[i], tat: 0, wat: 0 });
+            }
+            // Simulation loop to process each time unit
+            while (completed < n) {
+                let idx = -1;
+                // Determine the next process to run based on priority and arrival time
+                for (let i = 0; i < n; i++) {
+                    if (arrivalT[i] <= time && remainingTime[i] > 0 && 
+                        (idx === -1 || prio[i] < prio[idx])) idx = i;
+                }
+                if (idx === -1) {
+                    ganttInfo.push({ job: "I", start: time, stop: ++time });
+                    continue;
+                }
+                ganttInfo.push({ job: processes[idx].job, start: time, stop: ++time });
+                if (--remainingTime[idx] === 0) {
+                    processes[idx].tat = time - processes[idx].at;
+                    processes[idx].wat = processes[idx].tat - processes[idx].bt;
+                    completed++;
+                }
+            }
+            return { processes, ganttInfo, totalburstT };
+        }
+
+        // Non-Preemptive Priority Scheduling Algorithm
+        function nonPreemptivePrio(arrivalT, burstT, prio) {
+            const processesInfo = arrivalT.map((item, index) => {
+                const job = `P${index + 1}`;
+                return { job, at: item, bt: burstT[index], priority: prio[index] };
+            }).sort((a, b) => a.at - b.at || a.priority - b.priority);
+
+            let finishTime = [], ganttInfo = [], solvedPInfo = [], readyQ = [], finishedJobs = [];
+            
+            // Add idle time if the first arrival time is greater than zero
+            if (processesInfo[0].at > 0) ganttInfo.push({ job: "I", start: 0, stop: processesInfo[0].at });
+
+            // Process each job based on arrival and priority
+            for (let i = 0; i < processesInfo.length; i++) {
+                if (i === 0) {
+                    readyQ.push(processesInfo[0]);
+                    finishTime.push(processesInfo[0].at + processesInfo[0].bt);
+                    solvedPInfo.push({
+                        ...processesInfo[0], tat: finishTime[0] - processesInfo[0].at, wat: finishTime[0] - processesInfo[0].at - processesInfo[0].bt,
+                    });
+                    processesInfo.forEach(p => p.at <= finishTime[0] && !readyQ.includes(p) && readyQ.push(p));
+                    readyQ.shift(); finishedJobs.push(processesInfo[0]);
+                    ganttInfo.push({ job: processesInfo[0].job, start: processesInfo[0].at, stop: finishTime[0] });
+                } else {
+                    if (!readyQ.length && finishedJobs.length !== processesInfo.length) {
+                        const unfinished = processesInfo.filter(p => !finishedJobs.includes(p)).sort((a, b) => a.at - b.at || a.priority - b.priority);
+                        const idleStart = finishTime[finishTime.length - 1];
+                        const idleEnd = unfinished[0].at;
+                        if (idleEnd > idleStart) ganttInfo.push({ job: "I", start: idleStart, stop: idleEnd });
+                        readyQ.push(unfinished[0]);
+                    }
+
+                    const processToExecute = readyQ.sort((a, b) => a.priority - b.priority)[0];
+                    const previousFinishTime = Math.max(finishTime[finishTime.length - 1], processToExecute.at);
+                    finishTime.push(previousFinishTime + processToExecute.bt);
+                    solvedPInfo.push({
+                        ...processToExecute, tat: finishTime[i] - processToExecute.at, wat: finishTime[i] - processToExecute.at - processToExecute.bt,
+                    });
+
+                    ganttInfo.push({ job: processToExecute.job, start: previousFinishTime, stop: finishTime[i] });
+                    processesInfo.forEach(p => p.at <= finishTime[i] && !readyQ.includes(p) && !finishedJobs.includes(p) && readyQ.push(p));
+                    readyQ = readyQ.filter(job => job.job !== processToExecute.job); finishedJobs.push(processToExecute);
+                }
+            }
+            return { solvedPInfo, ganttInfo };
+        }
+
+        // To validate input, execute scheduling algorithm, and display results
+        function runSched() {
+            const arrivalTValue = document.getElementById("arrivalT").value.trim();
+            const burstTValue = document.getElementById("burstT").value.trim();
+            const prioValue = document.getElementById("prio").value.trim();
+
+            // Check if all field are empty
+            if (!arrivalTValue || !burstTValue || !prioValue) {
+                window.alert("Please fill in all the fields.");
+                return;
+            }
+
+            const arrivalT = arrivalTValue.split(/\s+/).map(Number);
+            const burstT = burstTValue.split(/\s+/).map(Number);
+            const prio = prioValue.split(/\s+/).map(Number);
+            const schedulingType = document.getElementById("schedulingType").value;
+
+            // Validate that all fields have an equal number of entries
+            if (arrivalT.length !== burstT.length || arrivalT.length !== prio.length) {
+                window.alert("The number of entries for Arrival Time, Burst Time, and Priority must be equal.");
+                return;
+            }
+
+            // Validate if input is a number
+            for (var i = 0; i < arrivalT.length; i++) {
+                if (arrivalT[i] !== +arrivalT[i] || burstT[i] !== +burstT[i] || prio[i] !== +prio[i]) {
+                    window.alert("Please enter valid numbers for Arrival Times, Burst Times, and Priorities.");
+                    return;
+                }
+            }
+
+            // Validate if number is a non-negative 
+            for (var i = 0; i < arrivalT.length; i++) {
+                if (arrivalT[i] < 0 || prio[i] < 0) {
+                    window.alert("Please ensure Arrival Times, Burst Times, and Priorities are non-negative.");
+                    return;
+                } if (burstT[i] <= 0) { // Validate if number have 0 for burst times
+                    window.alert("Please ensure Burst Times are non-negative and do not have zero.");
+                    return;
+                }
+            }
+
+            let solvedPInfo, ganttInfo, totalburstT;
+            if (schedulingType === "preemptive") {
+            // Call the preemptive priority function
+                const result = preemptivePrio(arrivalT, burstT, prio);
+                solvedPInfo = result.processes;
+                ganttInfo = result.ganttInfo;
+                totalburstT = result.totalburstT;
+            } else {
+            // Call the non-preemptive priority function
+                const result = nonPreemptivePrio(arrivalT, burstT, prio);
+                solvedPInfo = result.solvedPInfo;
+                ganttInfo = result.ganttInfo;
+
+            // Calculate total burst time 
+            totalburstT = 0;
+
+            for (var i = 0; i < burstT.length; i++) {
+                totalburstT += burstT[i];
+            }
+
+            // Sort solved processes by job name 
+            for (var i = 0; i < solvedPInfo.length; i++) {
+                for (var j = i + 1; j < solvedPInfo.length; j++) {
+                    if (solvedPInfo[i].job > solvedPInfo[j].job) {
+                    // Swap the elements
+                        const temp = solvedPInfo[i];
+                        solvedPInfo[i] = solvedPInfo[j];
+                        solvedPInfo[j] = temp;
+                    }
+                }
+            }
+        }
+            // Gantt Chart        
+            let ganttChartHTML = "<div class='gantt-chart'>";
+            mergeGanttChart(ganttInfo).forEach(job => {
+                ganttChartHTML += `<div class='gantt-box'>${job.job}<br>${job.start} - ${job.stop}</div>`;
+            });
+            ganttChartHTML += "</div>";
+            document.getElementById("ganttChart").innerHTML = ganttChartHTML;
+
+            // Table Results
+            let resultHTML = "<table><tr><th>Process</th><th>Arrival Time</th><th>Burst Time</th><th>Priority</th><th>Turnaround Time</th><th>Waiting Time</th></tr>";
+            let totalTAT = 0, totalWAT = 0;
+            solvedPInfo.forEach(p => {
+                resultHTML += `<tr><td>${p.job}</td><td>${p.at}</td><td>${p.bt}</td><td>${p.priority}</td><td>${p.tat}</td><td>${p.wat}</td></tr>`;
+                totalTAT += p.tat;
+                totalWAT += p.wat;
+            });
+            resultHTML += "</table>";
+            
+            // Calculate and display Averages and CPU Utilization
+            const aveTAT = (totalTAT / solvedPInfo.length).toFixed(2);
+            const aveWAT = (totalWAT / solvedPInfo.length).toFixed(2);
+            const finalGanttT = ganttInfo[ganttInfo.length - 1].stop;
+            const cpuUtil = ((totalburstT / finalGanttT) * 100).toFixed(2);
+
+            resultHTML += `<br><label style="color: goldenrod;"><strong>Average Turnaround Time:</strong> ${totalTAT} / ${solvedPInfo.length} = <span style="color: darkblue;"><strong> ${aveTAT}</span></strong></label>`;
+            resultHTML += `<label style="color: goldenrod;"><strong>Average Waiting Time: </strong> ${totalWAT} / ${solvedPInfo.length} = <span style="color: darkblue;"> <strong> ${aveWAT} </span></strong></label>`;
+            resultHTML += `<label style="color: goldenrod;"><strong>CPU Utilization: </strong> (${totalburstT} / ${finalGanttT}) * 100 = <span style="color: darkblue;"> <strong> ${cpuUtil}% </span> </strong></label>`;
+
+            document.getElementById("results").innerHTML = resultHTML;
+        }
+    </script>
+</body>
+</html>
